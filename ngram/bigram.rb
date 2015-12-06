@@ -167,7 +167,7 @@ class Bigram < Ngram
 
   private
 
-  CONST_D = 0.75
+  CONST_D = 0.77
 
   def kneser_ney
     count_by_word_after_target = @file_reader.count_by_word_after_targets(@target_words)
@@ -215,7 +215,7 @@ class Trigram < Ngram
 
   private
 
-  CONST_D = 0.5
+  CONST_D = 0.95
 
   def kneser_ney
     count_by_word_after_targets = @file_reader.count_by_word_after_targets(@target_words)
