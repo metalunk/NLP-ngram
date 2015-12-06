@@ -57,19 +57,34 @@ class FileReader
   end
 end
 
-class Bigram
-  OUTPUT_FILE_PREFIX = 'data/bigram_'
-
+class Ngram
   def initialize
-    file_name, @target_word = argv
-    @file_reader = FileReader.new(file_name)
+    file_name, target_word, n = argv
+    file_reader = FileReader.new(file_name)
+
+    case n
+      when 2
+        @ngram = Bigram.new file_reader, target_word
+      when 3
+        @ngram = Trigram.new file_reader, target_word
+      else
+        puts 'bigram and trigram are only inplemented.'
+        exit 1
+    end
   end
 
   def calc
-    discounted_bigram, sum_p = discounting
-    bigram_model = distribution discounted_bigram, sum_p
+    @ngram.calc
+  end
 
-    output_to_file bigram_model
+  def output_to_file (ngram_model, output_file_name)
+    File.open(output_file_name, 'w+') do |file|
+      file.write(sprintf("%20.17e\n", 0)) # for unknown word
+      ngram_model.each do |word, p|
+        p ||= 0
+        file.write(sprintf("%20.17e\n", p))
+      end
+    end
   end
 
   private
@@ -87,52 +102,37 @@ class Bigram
     end
     target_word_num = ARGV[1].to_i
 
-    [file_name, target_word_num]
-  end
-
-  def discounting
-    count_by_word_after_target = @file_reader.count_by_word_after_target(@target_word)
-    count_word_after_target = @file_reader.count_word_after_target
-    count_by_word = @file_reader.count_by_word
-
-    discounted_bigram = {}
-    word_count_by_count = word_count_by_count()
-    sum_p = 0.0
-
-    count_by_word.each do |word,|
-      count_after_target = count_by_word_after_target[word] || 0
-      word_count_by_count[count_after_target + 1] ||= 0.0
-
-      if word_count_by_count[count_after_target] != 0
-        discounted_count = (count_after_target + 1).to_f *
-            word_count_by_count[count_after_target + 1].to_f /
-            word_count_by_count[count_after_target].to_f
-      else
-        discounted_count = 0
-      end
-
-      discounted_bigram[word] = discounted_count / count_word_after_target
-      sum_p += discounted_bigram[word]
+    if ARGV[2].nil?
+      puts 'n is required.'
+      exit 1
     end
+    n = ARGV[2].to_i
 
-    [discounted_bigram, sum_p]
+    [file_name, target_word_num, n]
+  end
+end
+
+class Bigram < Ngram
+  OUTPUT_FILE_PREFIX = 'data/bigram_'
+
+  def initialize (file_reader, target_word)
+    @file_reader = file_reader
+    @target_word = target_word
   end
 
-  def word_count_by_count
-    count_by_word_after_target = @file_reader.count_by_word_after_target(@target_word)
-    count_by_word = @file_reader.count_by_word
+  def calc
+    # discounted_bigram, sum_p = discounting
+    # bigram_model = distribution discounted_bigram, sum_p
 
-    word_count_by_count = {}
-    count_by_word.each do |word,|
-      count = count_by_word_after_target[word] || 0
+    bigram_model, sum_p = kneser_ney
+    bigram_model = good_turing_distribution bigram_model, sum_p
 
-      word_count_by_count[count] ||= 0
-      word_count_by_count[count] += 1
-    end
-    word_count_by_count
+    this.output_to_file bigram_model, "#{OUTPUT_FILE_PREFIX}#{@target_word}"
   end
 
-  def distribution (discounted_bigram, sum_p)
+  private
+
+  def good_turing_distribution (discounted_bigram, sum_p)
     count_by_word = @file_reader.count_by_word
     count_all_word = @file_reader.count_all_word
 
@@ -143,16 +143,86 @@ class Bigram
     bigram_model
   end
 
-  def output_to_file (bigram_model)
-    File.open("#{OUTPUT_FILE_PREFIX}#{@target_word}", 'w+') do |file|
-      file.write(sprintf("%20.17e\n", 0)) # for unknown word
-      bigram_model.each do |, p|
-        p ||= 0
-        file.write(sprintf("%20.17e\n", p))
-      end
+  CONST_D = 0.5
+
+  def kneser_ney
+    count_by_word_after_target = @file_reader.count_by_word_after_target(@target_word)
+    count_by_word = @file_reader.count_by_word
+    count_all_word = @file_reader.count_all_word
+
+    bigram_model = {}
+    sum_p = 0.0
+    count_by_word.each do |word,|
+      count_by_word_after_target[word] ||= 0
+      p = [count_by_word_after_target[word].to_f - CONST_D, 0.0].max /
+        count_by_word[@target_word].to_f + count_by_word[word].to_f / count_all_word.to_f
+      bigram_model[word] = p
+      sum_p += p
     end
+
+    [bigram_model, sum_p]
+  end
+
+  # not used
+  # def discounting
+  #   count_by_word_after_target = @file_reader.count_by_word_after_target(@target_word)
+  #   count_word_after_target = @file_reader.count_word_after_target
+  #   count_by_word = @file_reader.count_by_word
+  #
+  #   discounted_bigram = {}
+  #   word_count_by_count = word_count_by_count()
+  #   sum_p = 0.0
+  #
+  #   count_by_word.each do |word,|
+  #     count_after_target = count_by_word_after_target[word] || 0
+  #     word_count_by_count[count_after_target + 1] ||= 0.0
+  #
+  #     if word_count_by_count[count_after_target] != 0
+  #       discounted_count = (count_after_target + 1).to_f *
+  #           word_count_by_count[count_after_target + 1].to_f /
+  #           word_count_by_count[count_after_target].to_f
+  #     else
+  #       discounted_count = 0
+  #     end
+  #
+  #     discounted_bigram[word] = discounted_count / count_word_after_target
+  #     sum_p += discounted_bigram[word]
+  #   end
+  #
+  #   [discounted_bigram, sum_p]
+  # end
+
+  # not used
+  # def word_count_by_count
+  #   count_by_word_after_target = @file_reader.count_by_word_after_target(@target_word)
+  #   count_by_word = @file_reader.count_by_word
+  #
+  #   word_count_by_count = {}
+  #   count_by_word.each do |word,|
+  #     count = count_by_word_after_target[word] || 0
+  #
+  #     word_count_by_count[count] ||= 0
+  #     word_count_by_count[count] += 1
+  #   end
+  #   word_count_by_count
+  # end
+end
+
+class Trigram < Ngram
+  OUTPUT_FILE_PREFIX = 'data/trigram_'
+
+  def initialize (file_reader, target_word)
+    @file_reader = file_reader
+    @target_word = target_word
+  end
+
+  def calc
+    trigram_model, sum_p = kneser_ney
+    trigram_model = good_turing_distribution trigram_model, sum_p
+
+    this.output_to_file trigram_model, "#{OUTPUT_FILE_PREFIX}#{@target_word}"
   end
 end
 
-bigram = Bigram.new
-bigram.calc
+ngram = Ngram.new
+ngram.calc
